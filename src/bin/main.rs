@@ -1,7 +1,8 @@
 use windows::Win32::{
     Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM},
     Graphics::Gdi::{
-        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, GetDC, HBRUSH, SRCCOPY, StretchDIBits, HDC,
+        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, GetDC, HBRUSH, HDC, SRCCOPY,
+        StretchDIBits,
     },
     System::LibraryLoader::GetModuleHandleW,
     UI::WindowsAndMessaging::{
@@ -68,7 +69,7 @@ fn main() -> Result<()> {
 
     //create window
     let dw_style = WS_OVERLAPPEDWINDOW | WS_VISIBLE;
-    let (buffer_w, buffer_h) = (1024, 720);
+    let (buffer_w, buffer_h) = (1440, 640);
     let (nwidth, nheight) = get_window_size(buffer_w, buffer_h)?;
     let hwnd = unsafe {
         CreateWindowExW(
@@ -116,7 +117,7 @@ fn main() -> Result<()> {
         return Err(windows::core::Error::from_thread());
     }
 
-    present(&screen, &hdc, &bitmap_info); 
+    present(&screen, &hdc, &bitmap_info);
     /*
     pub unsafe fn StretchDIBits(
         hdc: HDC,
@@ -135,8 +136,35 @@ fn main() -> Result<()> {
     ) -> i32
         */
 
-    let mut x = 0u32;
-    let mut y = 0u32;
+    let mut p1 = Vec2::new(200.0, 800.0);
+    let mut p2 = Vec2::new(1000.0, 500.0);
+    let mut p3 = Vec2::new(200.0, 200.0);
+    let tri = Triangle::new(p3, p2, p1);
+
+    dbg!(tri.signed_area_twice());
+    screen.draw_triangle(tri, Color::Blue as u32);
+
+    let fill = TriangleFillType::Gradient {
+        c0: Color::Yellow.to_rgb(),
+        c1: Color::White.to_rgb(),
+        c2: Color::Black.to_rgb(),
+    };
+
+    let fill2 = TriangleFillType::Gradient {
+        c0: Color::Red.to_rgb(),
+        c1: Color::White.to_rgb(),
+        c2: Color::Green.to_rgb(),
+    };
+    screen.fill_triangle(tri, fill2);
+
+    let mut pp1 = Vec2::new(50.0, 400.0);
+    let mut pp2 = Vec2::new(100.0, 200.0);
+    let mut pp3 = Vec2::new(800.0, 100.0);
+    let tri2 = Triangle::new(pp3, pp2, pp1);
+
+
+    screen.fill_triangle(tri2, fill2);
+
     loop {
         while unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE) }.as_bool() {
             if msg.message == WM_QUIT {
@@ -149,19 +177,7 @@ fn main() -> Result<()> {
             }
         }
 
-        if y < buffer_h {
-            screen.set_pixel_value(x, y, Color::Red as u32);
-
-            x += 1;
-
-            if x >= buffer_w {
-                x = 0;
-                y += 1;
-            }
-        }
-
-    present(&screen, &hdc, &bitmap_info); 
-
+        present(&screen, &hdc, &bitmap_info);
     }
 
     Ok(())
@@ -188,23 +204,23 @@ fn get_window_size(buffer_w: u32, buffer_h: u32) -> Result<(i32, i32)> {
     Ok((window_w, window_h))
 }
 
-fn present(screen: &ScreenBuffer, hdc: &HDC, bitmap_info: &BITMAPINFO){
-        let copied_lines = unsafe {
-            StretchDIBits(
-                *hdc,
-                0,
-                0,
-                screen.w as i32,
-                screen.h as i32,
-                0,
-                0,
-                screen.w as i32,
-                screen.h as i32,
-                Some(screen.pixels().as_ptr().cast()),
-                bitmap_info,
-                DIB_RGB_COLORS,
-                SRCCOPY,
-            )
-        };
-        debug_assert!(copied_lines != 0);
+fn present(screen: &ScreenBuffer, hdc: &HDC, bitmap_info: &BITMAPINFO) {
+    let copied_lines = unsafe {
+        StretchDIBits(
+            *hdc,
+            0,
+            0,
+            screen.w as i32,
+            screen.h as i32,
+            0,
+            0,
+            screen.w as i32,
+            screen.h as i32,
+            Some(screen.pixels().as_ptr().cast()),
+            bitmap_info,
+            DIB_RGB_COLORS,
+            SRCCOPY,
+        )
+    };
+    debug_assert!(copied_lines != 0);
 }
