@@ -1,22 +1,27 @@
 pub type FrameBuffer = Vec<u32>;
+pub type DepthBuffer = Vec<f32>;
 
 pub struct ScreenBuffer {
     pub h: u32,
     pub w: u32,
     buffer: FrameBuffer,
+    depth_buffer: DepthBuffer,
 }
 
 impl ScreenBuffer {
     pub fn new(w: u32, h: u32, color: Option<u32>) -> Self {
+        let len = (w * h) as usize;
         Self {
             h,
             w,
-            buffer: vec![color.unwrap_or(0u32); (w * h) as usize],
+            buffer: vec![color.unwrap_or(0u32); len],
+            depth_buffer: vec![f32::INFINITY; len],
         }
     }
 
     pub fn clear(&mut self, color: Option<u32>) {
         self.buffer.fill(color.unwrap_or(0u32));
+        self.depth_buffer.fill(f32::INFINITY);
     }
 
     pub fn set_pixel_value(&mut self, x: i32, y: i32, color: u32) {
@@ -91,7 +96,59 @@ impl ScreenBuffer {
         }
     }
 
-    pub fn fill_triangle_gradiant(&mut self, tri: Triangle, fill_type: TriangleFillType) {}
+    
+}
+
+//3D
+impl ScreenBuffer{
+    pub fn set_pixel_depth(&mut self, x: i32, y: i32, z: f32, color: u32) {
+        if x < 0 || y < 0 || x >= self.w as i32 || y >= self.h as i32 {
+            return;
+        }
+
+        let idx = y as usize * self.w as usize + x as usize;
+
+        if z < self.depth_buffer[idx] {
+            self.depth_buffer[idx] = z;
+            self.buffer[idx] = color;
+        }
+    }
+
+    pub fn fill_triangle_3d(&mut self, tri: Triangle3, fill: TriangleFillType){
+        if tri.is_degenerate() {
+            return;
+        }
+        let Some(bbox) = tri.bounding_rect().clamp(self.w, self.h) else {
+            return;
+        };
+
+        let screen_tri = tri.to_screen_triangle();
+        let area = edge(screen_tri.p1, screen_tri.p2, screen_tri.p0);
+
+        for y in bbox.min_y..=bbox.max_y {
+            for x in bbox.min_x..=bbox.max_x {
+                let p = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
+
+                if !tri.contains_point(p) {
+                    continue;
+                }
+
+                let w0 = edge(screen_tri.p1, screen_tri.p2, p) / area;
+                let w1 = edge(screen_tri.p2, screen_tri.p0, p) / area;
+                let w2 = edge(screen_tri.p0, screen_tri.p1, p) / area;
+
+                let color = match fill {
+                    TriangleFillType::Solid(color) => color,
+
+                    TriangleFillType::Gradient { c0, c1, c2 } => (c0 * w0 + c1 * w1 + c2 * w2).to_u32(),
+                };
+                let z = tri.p0.z * w0 + tri.p1.z * w1 + tri.p2.z * w2;
+
+                self.set_pixel_depth(x, y,z, color);
+            }
+        }
+
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -216,19 +273,66 @@ impl Triangle {
         }
     }
 
-    pub fn contains_point(&self, p: Vec2) -> bool {
-        let e0 = edge(self.p0, self.p1, p);
-        let e1 = edge(self.p1, self.p2, p);
-        let e2 = edge(self.p2, self.p0, p);
+    pub fn contains_point(self, p: Vec2) -> bool {
+        let mut p0 = self.p0;
+        let mut p1 = self.p1;
+        let mut p2 = self.p2;
 
-        let has_negative = e0 < 0.0 || e1 < 0.0 || e2 < 0.0;
-        let has_positive = e0 > 0.0 || e1 > 0.0 || e2 > 0.0;
+        // Normalize the winding so that interior edge values are negative.
+        if edge(p0, p1, p2) > 0.0 {
+            std::mem::swap(&mut p1, &mut p2);
+        }
 
-        !(has_negative && has_positive)
+        let e0 = edge(p0, p1, p);
+        let e1 = edge(p1, p2, p);
+        let e2 = edge(p2, p0, p);
+
+        let inside_e0 = e0 < 0.0 || (e0 == 0.0 && is_top_left_edge(p0, p1));
+        let inside_e1 = e1 < 0.0 || (e1 == 0.0 && is_top_left_edge(p1, p2));
+        let inside_e2 = e2 < 0.0 || (e2 == 0.0 && is_top_left_edge(p2, p0));
+
+        inside_e0 && inside_e1 && inside_e2
     }
 
     pub fn signed_area_twice(self) -> f32 {
         (self.p1 - self.p0).cross(self.p2 - self.p0)
+    }
+
+    pub fn is_degenerate(self) -> bool {
+        self.signed_area_twice().abs() < f32::EPSILON
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Triangle3 {
+    pub p0: Vec3,
+    pub p1: Vec3,
+    pub p2: Vec3,
+}
+
+impl Triangle3 {
+    pub fn new(p0: Vec3, p1: Vec3, p2: Vec3) -> Self {
+        Self { p0, p1, p2 }
+    }
+
+    pub fn to_screen_triangle(self) -> Triangle {
+        Triangle::new(
+            Vec2::new(self.p0.x, self.p0.y),
+            Vec2::new(self.p1.x, self.p1.y),
+            Vec2::new(self.p2.x, self.p2.y),
+        )
+    }
+
+    pub fn bounding_rect(self) -> BoundingBox {
+        self.to_screen_triangle().bounding_rect()
+    }
+
+    pub fn contains_point(self, p: Vec2) -> bool {
+        self.to_screen_triangle().contains_point(p)
+    }
+
+    pub fn signed_area_twice(self) -> f32 {
+        self.to_screen_triangle().signed_area_twice()
     }
 
     pub fn is_degenerate(self) -> bool {
@@ -269,6 +373,13 @@ impl BoundingBox {
 
 fn edge(a: Vec2, b: Vec2, p: Vec2) -> f32 {
     (p.x - a.x) * (b.y - a.y) - (p.y - a.y) * (b.x - a.x)
+}
+
+fn is_top_left_edge(a: Vec2, b: Vec2) -> bool {
+    let dx = b.x - a.x;
+    let dy = b.y - a.y;
+
+    dy < 0.0 || (dy == 0.0 && dx > 0.0)
 }
 
 use std::ops::{Add, Div, Mul, Neg, Sub};

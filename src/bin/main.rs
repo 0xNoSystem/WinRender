@@ -136,13 +136,12 @@ fn main() -> Result<()> {
     ) -> i32
         */
 
-    let mut p1 = Vec2::new(200.0, 800.0);
-    let mut p2 = Vec2::new(1000.0, 500.0);
-    let mut p3 = Vec2::new(200.0, 200.0);
-    let tri = Triangle::new(p3, p2, p1);
+    let mut p1 = Vec3::new(0.0, 0.0, 4.0);
+    let mut p2 = Vec3::new(1000.0, 500.0, 10.0);
+    let mut p3 = Vec3::new(100.0, 700.0,10.0);
+    let tri = Triangle3::new(p3, p2, p1);
 
     dbg!(tri.signed_area_twice());
-    screen.draw_triangle(tri, Color::Blue as u32);
 
     let fill = TriangleFillType::Gradient {
         c0: Color::Yellow.to_rgb(),
@@ -155,15 +154,20 @@ fn main() -> Result<()> {
         c1: Color::White.to_rgb(),
         c2: Color::Green.to_rgb(),
     };
-    screen.fill_triangle(tri, fill2);
 
-    let mut pp1 = Vec2::new(50.0, 400.0);
-    let mut pp2 = Vec2::new(100.0, 200.0);
-    let mut pp3 = Vec2::new(800.0, 100.0);
-    let tri2 = Triangle::new(pp3, pp2, pp1);
+    let mut x = 0.0;
+    let mut pp1 = Vec3::new(x, 0.0, 5.0);
+    let mut pp2 = Vec3::new(100.0, 200.0, 5.0);
+    let mut pp3 = Vec3::new(800.0, 100.0, 5.0);
+    let tri2 = Triangle3::new(pp3, pp2, pp1);
 
+    let mut screen_triangles = vec![tri];
 
-    screen.fill_triangle(tri2, fill2);
+    for t in &screen_triangles{
+        screen.fill_triangle_3d(*t, fill);
+    }
+
+    screen.clear(None);
 
     loop {
         while unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE) }.as_bool() {
@@ -175,6 +179,14 @@ fn main() -> Result<()> {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
+        }
+
+        screen.clear(None);
+        for mut t in &mut screen_triangles{
+            t.p0.x += 3.0;
+            t.p1.x += 3.0;
+            t.p2.x += 3.0;
+            screen.fill_triangle_3d(*t, fill);
         }
 
         present(&screen, &hdc, &bitmap_info);
