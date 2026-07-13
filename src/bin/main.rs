@@ -136,9 +136,10 @@ fn main() -> Result<()> {
     ) -> i32
         */
 
-    let mut p1 = Vec3::new(0.0, 0.0, 4.0);
-    let mut p2 = Vec3::new(1000.0, 500.0, 10.0);
-    let mut p3 = Vec3::new(100.0, 700.0,10.0);
+    use Color as C;
+    let mut p1 = Vec3::new(0.0, 0.0, 10.0);
+    let mut p2 = Vec3::new(1000.0, 300.0, -70.0);
+    let mut p3 = Vec3::new(100.0, 300.0, -100.0);
     let tri = Triangle3::new(p3, p2, p1);
 
     dbg!(tri.signed_area_twice());
@@ -155,20 +156,33 @@ fn main() -> Result<()> {
         c2: Color::Green.to_rgb(),
     };
 
-    let mut x = 0.0;
-    let mut pp1 = Vec3::new(x, 0.0, 5.0);
-    let mut pp2 = Vec3::new(100.0, 200.0, 5.0);
-    let mut pp3 = Vec3::new(800.0, 100.0, 5.0);
-    let tri2 = Triangle3::new(pp3, pp2, pp1);
+    let mut x = 600.0;
+    let mut pp1 = Vec3::new(200.0, 200.0, -120.0);
+    let mut pp2 = Vec3::new(500.0, 500.0, 0.0);
+    let mut pp3 = Vec3::new(x, 300.0, -100.0);
+    let tri2 = Triangle3::new(pp1, pp2, pp3);
 
-    let mut screen_triangles = vec![tri];
+    let mut center_z = 0.0;
+    let mut center_x = 1000.0;
+    let mut center = Vec3::new(center_x, 300.0, center_z);
+    let sphere = Mesh::uv_sphere(center, 100.0, 90, 120);
+    screen.render_mesh(&sphere, Color::Yellow as u32);
+    screen.render_mesh(&tri2.into(), Color::Red as u32);
+    screen.render_mesh(&tri.into(), Color::Blue as u32);
 
-    for t in &screen_triangles{
-        screen.fill_triangle_3d(*t, fill);
-    }
+    screen.draw_triangle_3d(tri2, Color::Green as u32);
+    let torus = Mesh::torus(Vec3::new(800.0, 400.0, -150.0), 250.0, 80.0, 48, 24, -0.79);
+    let mut screen_meshes = vec![
+        (torus, Color::Magenta),
+        (tri.into(), C::Red),
+        (tri2.into(), C::Green),
+        (sphere, C::Yellow),
+    ];
 
-    screen.clear(None);
+    screen.draw_line_depth(Vec3::new(800.0, 300.0, -0.0), center, 0);
+    //screen.draw_line(center.into(), Vec3::new(800.0, 300.0, 0.0).into(), 0);
 
+    let mut left = true;
     loop {
         while unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE) }.as_bool() {
             if msg.message == WM_QUIT {
@@ -180,14 +194,28 @@ fn main() -> Result<()> {
                 DispatchMessageW(&msg);
             }
         }
-
         screen.clear(None);
-        for mut t in &mut screen_triangles{
-            t.p0.x += 3.0;
-            t.p1.x += 3.0;
-            t.p2.x += 3.0;
-            screen.fill_triangle_3d(*t, fill);
+
+        for (m, c) in screen_meshes.iter() {
+            screen.render_mesh(m, *c as u32);
         }
+
+        if center_x <= -1.0 {
+            left = false;
+        } else if center_x > 1000.0 {
+            left = true;
+        }
+
+        if left {
+            center_x -= 5.0;
+        } else {
+            center_x += 10.0;
+        }
+
+        let mut center = Vec3::new(center_x, 250.0, center_z);
+        let sphere = Mesh::uv_sphere(center, 100.0, 90, 120);
+
+        screen_meshes.last_mut().unwrap().0 = sphere;
 
         present(&screen, &hdc, &bitmap_info);
     }

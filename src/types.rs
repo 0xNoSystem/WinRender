@@ -25,7 +25,7 @@ impl ScreenBuffer {
     }
 
     pub fn set_pixel_value(&mut self, x: i32, y: i32, color: u32) {
-        if x >= self.w as i32 || y >= self.h as i32 {
+        if x < 0 || y < 0 || x >= self.w as i32 || y >= self.h as i32 {
             return;
         }
 
@@ -95,12 +95,10 @@ impl ScreenBuffer {
             }
         }
     }
-
-    
 }
 
 //3D
-impl ScreenBuffer{
+impl ScreenBuffer {
     pub fn set_pixel_depth(&mut self, x: i32, y: i32, z: f32, color: u32) {
         if x < 0 || y < 0 || x >= self.w as i32 || y >= self.h as i32 {
             return;
@@ -114,40 +112,85 @@ impl ScreenBuffer{
         }
     }
 
-    pub fn fill_triangle_3d(&mut self, tri: Triangle3, fill: TriangleFillType){
-        if tri.is_degenerate() {
+    pub fn draw_line_depth(&mut self, p1: Vec3, p2: Vec3, color: u32) {
+        let delta = p2 - p1;
+        let steps = delta.x.abs().max(delta.y.abs()).ceil() as u32;
+
+        if steps == 0 {
+            self.set_pixel_depth(p1.x.round() as i32, p1.y.round() as i32, p1.z, color);
             return;
         }
+
+        for i in 0..=steps {
+            let t = i as f32 / steps as f32;
+            let pt = p1 + delta * t;
+
+            self.set_pixel_depth(pt.x.round() as i32, pt.y.round() as i32, pt.z, color);
+        }
+    }
+
+    pub fn draw_triangle_3d(&mut self, Triangle3 { p0, p1, p2 }: Triangle3, color: u32) {
+        self.draw_line_depth(p0, p1, color);
+        self.draw_line_depth(p1, p2, color);
+        self.draw_line_depth(p2, p0, color);
+    }
+
+    pub fn fill_triangle_3d(&mut self, tri: Triangle3, fill: TriangleFillType) {
+        let screen_tri = tri.to_screen_triangle();
+
+        let area = edge(screen_tri.p1, screen_tri.p2, screen_tri.p0);
+
+        // Degenerate and back-facing triangles.
+        if area <= 0.0 {
+            return;
+        }
+
         let Some(bbox) = tri.bounding_rect().clamp(self.w, self.h) else {
             return;
         };
 
-        let screen_tri = tri.to_screen_triangle();
-        let area = edge(screen_tri.p1, screen_tri.p2, screen_tri.p0);
+        let inv_area = 1.0 / area;
 
         for y in bbox.min_y..=bbox.max_y {
             for x in bbox.min_x..=bbox.max_x {
                 let p = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
 
-                if !tri.contains_point(p) {
+                let e0 = edge(screen_tri.p1, screen_tri.p2, p);
+                let e1 = edge(screen_tri.p2, screen_tri.p0, p);
+                let e2 = edge(screen_tri.p0, screen_tri.p1, p);
+
+                if e0 < 0.0 || e1 < 0.0 || e2 < 0.0 {
                     continue;
                 }
 
-                let w0 = edge(screen_tri.p1, screen_tri.p2, p) / area;
-                let w1 = edge(screen_tri.p2, screen_tri.p0, p) / area;
-                let w2 = edge(screen_tri.p0, screen_tri.p1, p) / area;
+                let w0 = e0 * inv_area;
+                let w1 = e1 * inv_area;
+                let w2 = e2 * inv_area;
+
+                let z = tri.p0.z * w0 + tri.p1.z * w1 + tri.p2.z * w2;
 
                 let color = match fill {
                     TriangleFillType::Solid(color) => color,
 
-                    TriangleFillType::Gradient { c0, c1, c2 } => (c0 * w0 + c1 * w1 + c2 * w2).to_u32(),
+                    TriangleFillType::Gradient { c0, c1, c2 } => {
+                        (c0 * w0 + c1 * w1 + c2 * w2).to_u32()
+                    }
                 };
-                let z = tri.p0.z * w0 + tri.p1.z * w1 + tri.p2.z * w2;
 
-                self.set_pixel_depth(x, y,z, color);
+                self.set_pixel_depth(x, y, z, color);
             }
         }
+    }
+    pub fn render_mesh(&mut self, mesh: &Mesh, color: u32) {
+        if mesh.bounding_rect().clamp(self.w, self.h).is_none() {
+            return;
+        }
 
+        for [a, b, c] in &mesh.indices {
+            let tri = Triangle3::new(mesh.vertices[*a], mesh.vertices[*b], mesh.vertices[*c]);
+
+            self.fill_triangle_3d(tri, TriangleFillType::Solid(color));
+        }
     }
 }
 
@@ -303,6 +346,20 @@ impl Triangle {
     }
 }
 
+impl From<Triangle> for Mesh {
+    fn from(tri: Triangle) -> Self {
+        Self {
+            vertices: vec![
+                Vec3::new(tri.p0.x, tri.p0.y, 0.0),
+                Vec3::new(tri.p1.x, tri.p1.y, 0.0),
+                Vec3::new(tri.p2.x, tri.p2.y, 0.0),
+            ],
+            indices: vec![[0, 1, 2]],
+            bbox: tri.bounding_rect(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Triangle3 {
     pub p0: Vec3,
@@ -340,6 +397,17 @@ impl Triangle3 {
     }
 }
 
+impl From<Triangle3> for Mesh {
+    fn from(tri: Triangle3) -> Self {
+        Self {
+            vertices: vec![tri.p0, tri.p1, tri.p2],
+            indices: vec![[0, 1, 2]],
+            bbox: tri.bounding_rect(),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub struct BoundingBox {
     pub min_x: i32,
     pub max_x: i32,
@@ -497,6 +565,12 @@ impl Vec3 {
     }
 }
 
+impl From<Vec3> for Vec2 {
+    fn from(v: Vec3) -> Self {
+        Self { x: v.x, y: v.y }
+    }
+}
+
 impl Add for Vec3 {
     type Output = Self;
 
@@ -534,5 +608,129 @@ impl Neg for Vec3 {
 
     fn neg(self) -> Self::Output {
         Self::new(-self.x, -self.y, -self.z)
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Mesh {
+    vertices: Vec<Vec3>,
+    indices: Vec<[usize; 3]>,
+    bbox: BoundingBox,
+}
+
+use std::f32::consts::{PI, TAU};
+
+impl Mesh {
+    pub fn bounding_rect(&self) -> BoundingBox {
+        self.bbox
+    }
+
+    pub fn uv_sphere(center: Vec3, r: f32, lat_steps: usize, long_steps: usize) -> Self {
+        let mut vertices = Vec::new();
+
+        for lat in 0..=lat_steps {
+            let phi = PI * lat as f32 / lat_steps as f32;
+
+            for lon in 0..=long_steps {
+                let theta = TAU * lon as f32 / long_steps as f32;
+
+                let x = center.x + r * phi.sin() * theta.cos();
+                let y = center.y + r * phi.cos();
+                let z = center.z + r * phi.sin() * theta.sin();
+
+                vertices.push(Vec3::new(x, y, z));
+            }
+        }
+
+        let mut indices = Vec::new();
+        let stride = long_steps + 1;
+
+        for lat in 0..lat_steps {
+            for lon in 0..long_steps {
+                let a = lat * stride + lon;
+                let b = a + 1;
+                let c = a + stride;
+                let d = c + 1;
+
+                indices.push([a, b, c]);
+                indices.push([b, d, c]);
+            }
+        }
+
+        let bbox = BoundingBox {
+            min_x: (center.x - r).floor() as i32,
+            max_x: (center.x + r).ceil() as i32,
+            min_y: (center.y - r).floor() as i32,
+            max_y: (center.y + r).ceil() as i32,
+        };
+        Self {
+            vertices,
+            indices,
+            bbox,
+        }
+    }
+
+    pub fn torus(
+        center: Vec3,
+        major_radius: f32,
+        minor_radius: f32,
+        seg_u: usize,
+        seg_v: usize,
+        tilt: f32,
+    ) -> Self {
+        assert!(seg_u >= 3);
+        assert!(seg_v >= 3);
+
+        let mut vertices = Vec::with_capacity(seg_u * seg_v);
+        let mut indices = Vec::with_capacity(seg_u * seg_v * 2);
+
+        let cos_tilt = tilt.cos();
+        let sin_tilt = tilt.sin();
+
+        let idx = |u: usize, v: usize| -> usize { u * seg_v + v };
+
+        for u in 0..seg_u {
+            let a = TAU * u as f32 / seg_u as f32;
+            let cos_a = a.cos();
+            let sin_a = a.sin();
+
+            for v in 0..seg_v {
+                let b = TAU * v as f32 / seg_v as f32;
+                let cos_b = b.cos();
+                let sin_b = b.sin();
+
+                let x = (major_radius + minor_radius * cos_b) * cos_a;
+                let y = minor_radius * sin_b;
+                let z = (major_radius + minor_radius * cos_b) * sin_a;
+
+                // Rotate around the X axis.
+                let rotated_y = y * cos_tilt - z * sin_tilt;
+                let rotated_z = y * sin_tilt + z * cos_tilt;
+
+                vertices.push(Vec3::new(
+                    center.x + x,
+                    center.y + rotated_y,
+                    center.z + rotated_z,
+                ));
+            }
+        }
+
+        for u in 0..seg_u {
+            let next_u = (u + 1) % seg_u;
+
+            for v in 0..seg_v {
+                let next_v = (v + 1) % seg_v;
+
+                let a = idx(u, v);
+                let b = idx(next_u, v);
+                let c = idx(next_u, next_v);
+                let d = idx(u, next_v);
+
+                indices.push([a, b, c]);
+                indices.push([a, c, d]);
+            }
+        }
+
+        Self { vertices, indices, ..Default::default() }
     }
 }
