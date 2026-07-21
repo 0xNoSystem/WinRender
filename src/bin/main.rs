@@ -93,7 +93,7 @@ fn main() -> Result<()> {
         ShowWindow(hwnd, SW_SHOW);
     }
 
-    let mut screen = ScreenBuffer::new(buffer_w, buffer_h, Some(Color::Black as u32));
+    let mut screen = ScreenBuffer::new(buffer_w, buffer_h, Some(Color::Cyan as u32));
     //message loop
     let mut msg = MSG::default();
 
@@ -117,7 +117,45 @@ fn main() -> Result<()> {
         return Err(windows::core::Error::from_thread());
     }
 
-    present(&screen, &hdc, &bitmap_info);
+    let mut R = Renderer { screen };
+
+    present(&R.screen, &hdc, &bitmap_info);
+
+    let (mut mesh_store, mut obj_store) = init_scene();
+
+    let sphere = Sphere {
+        radius: 120.0,
+        lat_steps: 32,
+        long_steps: 48,
+    };
+    let sphere_mesh_id = mesh_store.insert(sphere.mesh());
+    let sphere_obj_id = obj_store.create_object(ObjectSpec {
+        mesh_id: sphere_mesh_id,
+        material_id: MaterialId(Color::Yellow as u32),
+        transform: Transform3D::default(),
+        visible: true,
+    });
+
+    let triangle = Triangle3 {
+        p0: Vec3::new(-1.0, -1.0, 0.0),
+        p1: Vec3::new(0.0, 1.0, 0.0),
+        p2: Vec3::new(1.0, -1.0, 0.0),
+    };
+
+    let triangle_mesh_id = mesh_store.insert(Mesh::from(triangle));
+
+    let t1 = obj_store.create_object(ObjectSpec {
+        mesh_id: triangle_mesh_id,
+        material_id: MaterialId(Color::Red as u32),
+        transform: Transform3D {
+            position: Vec3::new(600.0, 300.0, -100.0),
+            rotation: Vec3::ZERO,
+            scale: Vec3::new(300.0, 200.0, 1.0),
+        },
+        visible: true,
+    });
+
+    present(&R.screen, &hdc, &bitmap_info);
     /*
     pub unsafe fn StretchDIBits(
         hdc: HDC,
@@ -136,53 +174,6 @@ fn main() -> Result<()> {
     ) -> i32
         */
 
-    use Color as C;
-    let mut p1 = Vec3::new(0.0, 0.0, 10.0);
-    let mut p2 = Vec3::new(1000.0, 300.0, -70.0);
-    let mut p3 = Vec3::new(100.0, 300.0, -100.0);
-    let tri = Triangle3::new(p3, p2, p1);
-
-    dbg!(tri.signed_area_twice());
-
-    let fill = TriangleFillType::Gradient {
-        c0: Color::Yellow.to_rgb(),
-        c1: Color::White.to_rgb(),
-        c2: Color::Black.to_rgb(),
-    };
-
-    let fill2 = TriangleFillType::Gradient {
-        c0: Color::Red.to_rgb(),
-        c1: Color::White.to_rgb(),
-        c2: Color::Green.to_rgb(),
-    };
-
-    let mut x = 600.0;
-    let mut pp1 = Vec3::new(200.0, 200.0, -120.0);
-    let mut pp2 = Vec3::new(500.0, 500.0, 0.0);
-    let mut pp3 = Vec3::new(x, 300.0, -100.0);
-    let tri2 = Triangle3::new(pp1, pp2, pp3);
-
-    let mut center_z = 0.0;
-    let mut center_x = 1000.0;
-    let mut center = Vec3::new(center_x, 300.0, center_z);
-    let sphere = Mesh::uv_sphere(center, 100.0, 90, 120);
-    screen.render_mesh(&sphere, Color::Yellow as u32);
-    screen.render_mesh(&tri2.into(), Color::Red as u32);
-    screen.render_mesh(&tri.into(), Color::Blue as u32);
-
-    screen.draw_triangle_3d(tri2, Color::Green as u32);
-    let torus = Mesh::torus(Vec3::new(800.0, 400.0, -150.0), 250.0, 80.0, 48, 24, -0.79);
-    let mut screen_meshes = vec![
-        (torus, Color::Magenta),
-        (tri.into(), C::Red),
-        (tri2.into(), C::Green),
-        (sphere, C::Yellow),
-    ];
-
-    screen.draw_line_depth(Vec3::new(800.0, 300.0, -0.0), center, 0);
-    //screen.draw_line(center.into(), Vec3::new(800.0, 300.0, 0.0).into(), 0);
-
-    let mut left = true;
     loop {
         while unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE) }.as_bool() {
             if msg.message == WM_QUIT {
@@ -194,30 +185,40 @@ fn main() -> Result<()> {
                 DispatchMessageW(&msg);
             }
         }
-        screen.clear(None);
 
-        for (m, c) in screen_meshes.iter() {
-            screen.render_mesh(m, *c as u32);
+        R.screen.clear(None);
+        if let Some(sphere_object) = obj_store.get_mut(sphere_obj_id) {
+        sphere_object.transform.position.x += 4.0;
+        sphere_object.transform.position.y += 2.0;
+        sphere_object.transform.position.z -= 1.0;
+
+        let position = sphere_object.transform.position;
+        let scale = sphere_object.transform.scale;
+
+        let radius_x = 120.0 * scale.x.abs();
+        let radius_y = 120.0 * scale.y.abs();
+
+        let fully_outside =
+            position.x - radius_x >= R.screen.w as f32
+            || position.y - radius_y >= R.screen.h as f32
+            || position.x + radius_x < 0.0
+            || position.y + radius_y < 0.0;
+
+        if fully_outside {
+            sphere_object.transform.position = Vec3::ZERO;
         }
+    }
 
-        if center_x <= -1.0 {
-            left = false;
-        } else if center_x > 1000.0 {
-            left = true;
+        if let Some(tri_object) = obj_store.get_mut(t1) {
+           tri_object.transform.scale.x += 1.0; 
+           tri_object.transform.rotation.y += 0.02; 
         }
-
-        if left {
-            center_x -= 5.0;
-        } else {
-            center_x += 10.0;
+        for object in obj_store.iter_mut() {
+            if let Some(mesh) = mesh_store.get(object.mesh_id) {
+                R.draw_mesh(object, mesh);
+            }
         }
-
-        let mut center = Vec3::new(center_x, 250.0, center_z);
-        let sphere = Mesh::uv_sphere(center, 100.0, 90, 120);
-
-        screen_meshes.last_mut().unwrap().0 = sphere;
-
-        present(&screen, &hdc, &bitmap_info);
+        present(&R.screen, &hdc, &bitmap_info);
     }
 
     Ok(())
@@ -263,4 +264,8 @@ fn present(screen: &ScreenBuffer, hdc: &HDC, bitmap_info: &BITMAPINFO) {
         )
     };
     debug_assert!(copied_lines != 0);
+}
+
+fn init_scene() -> (MeshStore, ObjectStore) {
+    (MeshStore::new(), ObjectStore::new())
 }
