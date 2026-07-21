@@ -1,4 +1,5 @@
 use super::{Mesh, Shape, Transform3D};
+use crate::Color;
 
 #[derive(Debug)]
 pub struct Object {
@@ -58,7 +59,81 @@ pub struct ObjectId(pub usize);
 pub struct MeshId(pub usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct MaterialId(pub u32);
+pub struct MaterialId(pub usize);
+
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CullMode {
+    None,
+    #[default]
+    Back,
+    Front,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Material {
+    pub color: u32,
+    pub cull_mode: CullMode,
+}
+
+impl Material {
+    pub fn new(color: u32, cull_mode: CullMode) -> Self {
+        Self { color, cull_mode }
+    }
+
+    pub fn new_no_cull(color: u32) -> Self {
+        Self {
+            color,
+            cull_mode: CullMode::None,
+        }
+    }
+}
+
+impl Default for Material {
+    fn default() -> Self {
+        Self {
+            color: Color::White as u32,
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct MaterialStore {
+    materials: Vec<Option<Material>>,
+}
+
+impl MaterialStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert(&mut self, material: Material) -> MaterialId {
+        let id = MaterialId(self.free_id());
+
+        if id.0 == self.materials.len() {
+            self.materials.push(Some(material));
+        } else {
+            self.materials[id.0] = Some(material);
+        }
+
+        id
+    }
+
+    pub fn get(&self, id: MaterialId) -> Option<&Material> {
+        self.materials.get(id.0).and_then(Option::as_ref)
+    }
+
+    pub fn get_mut(&mut self, id: MaterialId) -> Option<&mut Material> {
+        self.materials.get_mut(id.0).and_then(Option::as_mut)
+    }
+
+    fn free_id(&self) -> usize {
+        self.materials
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or(self.materials.len())
+    }
+}
 
 #[derive(Default)]
 pub struct MeshStore {

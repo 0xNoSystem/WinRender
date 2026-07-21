@@ -120,8 +120,13 @@ fn main() -> Result<()> {
     let mut R = Renderer { screen };
 
     present(&R.screen, &hdc, &bitmap_info);
+    let (mut mesh_store, mut material_store, mut obj_store) = init_scene();
 
-    let (mut mesh_store, mut obj_store) = init_scene();
+    let (solid_yellow, solid_blue, full_red) = (
+        material_store.insert(Material::new(Color::Yellow as u32, CullMode::Back)),
+        material_store.insert(Material::new(Color::Blue as u32, CullMode::Back)),
+        material_store.insert(Material::new_no_cull(Color::Red as u32)),
+    );
 
     let sphere = Sphere {
         radius: 120.0,
@@ -129,10 +134,21 @@ fn main() -> Result<()> {
         long_steps: 48,
     };
     let sphere_mesh_id = mesh_store.insert(sphere.mesh());
-    let sphere_obj_id = obj_store.create_object(ObjectSpec {
+    let sphere1_obj_id = obj_store.create_object(ObjectSpec {
         mesh_id: sphere_mesh_id,
-        material_id: MaterialId(Color::Yellow as u32),
+        material_id: solid_yellow,
         transform: Transform3D::default(),
+        visible: true,
+    });
+
+    let sphere2_obj_id = obj_store.create_object(ObjectSpec {
+        mesh_id: sphere_mesh_id,
+        material_id: solid_blue,
+        transform: Transform3D{
+            position: Vec3::new(600.0, 300.0, -150.0),
+            rotation: Vec3::ZERO,
+            scale: Vec3::ONE,
+        },
         visible: true,
     });
 
@@ -146,7 +162,7 @@ fn main() -> Result<()> {
 
     let t1 = obj_store.create_object(ObjectSpec {
         mesh_id: triangle_mesh_id,
-        material_id: MaterialId(Color::Red as u32),
+        material_id: full_red,
         transform: Transform3D {
             position: Vec3::new(600.0, 300.0, -100.0),
             rotation: Vec3::ZERO,
@@ -187,35 +203,35 @@ fn main() -> Result<()> {
         }
 
         R.screen.clear(None);
-        if let Some(sphere_object) = obj_store.get_mut(sphere_obj_id) {
-        sphere_object.transform.position.x += 4.0;
-        sphere_object.transform.position.y += 2.0;
-        sphere_object.transform.position.z -= 1.0;
+        if let Some(sphere_object) = obj_store.get_mut(sphere1_obj_id) {
+            sphere_object.transform.position.x += 4.0;
+            sphere_object.transform.position.y += 2.0;
+            sphere_object.transform.position.z -= 1.0;
 
-        let position = sphere_object.transform.position;
-        let scale = sphere_object.transform.scale;
+            let position = sphere_object.transform.position;
+            let scale = sphere_object.transform.scale;
 
-        let radius_x = 120.0 * scale.x.abs();
-        let radius_y = 120.0 * scale.y.abs();
+            let radius_x = 120.0 * scale.x.abs();
+            let radius_y = 120.0 * scale.y.abs();
 
-        let fully_outside =
-            position.x - radius_x >= R.screen.w as f32
-            || position.y - radius_y >= R.screen.h as f32
-            || position.x + radius_x < 0.0
-            || position.y + radius_y < 0.0;
+            let fully_outside = position.x - radius_x >= R.screen.w as f32
+                || position.y - radius_y >= R.screen.h as f32
+                || position.x + radius_x < 0.0
+                || position.y + radius_y < 0.0;
 
-        if fully_outside {
-            sphere_object.transform.position = Vec3::ZERO;
+            if fully_outside {
+                sphere_object.transform.position = Vec3::ZERO;
+            }
         }
-    }
 
         if let Some(tri_object) = obj_store.get_mut(t1) {
-           tri_object.transform.scale.x += 1.0; 
-           tri_object.transform.rotation.y += 0.02; 
+            tri_object.transform.rotation.y += 0.02;
         }
         for object in obj_store.iter_mut() {
-            if let Some(mesh) = mesh_store.get(object.mesh_id) {
-                R.draw_mesh(object, mesh);
+            if let Some(mesh) = mesh_store.get(object.mesh_id)
+                && let Some(material) = material_store.get(object.material_id)
+            {
+                R.draw_mesh(object, mesh, material);
             }
         }
         present(&R.screen, &hdc, &bitmap_info);
@@ -266,6 +282,6 @@ fn present(screen: &ScreenBuffer, hdc: &HDC, bitmap_info: &BITMAPINFO) {
     debug_assert!(copied_lines != 0);
 }
 
-fn init_scene() -> (MeshStore, ObjectStore) {
-    (MeshStore::new(), ObjectStore::new())
+fn init_scene() -> (MeshStore, MaterialStore, ObjectStore) {
+    (MeshStore::new(), MaterialStore::new(), ObjectStore::new())
 }

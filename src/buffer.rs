@@ -1,6 +1,6 @@
 use crate::color::TriangleFillType;
 use crate::math::{Vec2, Vec3};
-use crate::three_d::{Mesh, Object, Triangle, Triangle3, edge};
+use crate::three_d::{CullMode, Material, Mesh, Object, Triangle, Triangle3, edge};
 
 pub type FrameBuffer = Vec<u32>;
 pub type DepthBuffer = Vec<f32>;
@@ -141,9 +141,25 @@ impl ScreenBuffer {
         self.draw_line_depth(p2, p0, color);
     }
 
-    pub fn fill_triangle_3d(&mut self, tri: Triangle3, fill: TriangleFillType) {
+    pub fn fill_triangle_3d(
+        &mut self,
+        tri: Triangle3,
+        fill: TriangleFillType,
+        cull_mode: CullMode,
+    ) {
         let screen_tri = tri.to_screen_triangle();
         let area = edge(screen_tri.p1, screen_tri.p2, screen_tri.p0);
+
+        if area.abs() <= f32::EPSILON {
+            return;
+        }
+
+        match cull_mode {
+            CullMode::None => {}
+            CullMode::Back if area < 0.0 => return,
+            CullMode::Front if area > 0.0 => return,
+            _ => {}
+        }
 
         let Some(bbox) = tri.bounding_rect().clamp(self.w, self.h) else {
             return;
@@ -159,7 +175,13 @@ impl ScreenBuffer {
                 let e1 = edge(screen_tri.p2, screen_tri.p0, p);
                 let e2 = edge(screen_tri.p0, screen_tri.p1, p);
 
-                if e0 < 0.0 || e1 < 0.0 || e2 < 0.0 {
+                let inside = if area > 0.0 {
+                    e0 >= 0.0 && e1 >= 0.0 && e2 >= 0.0
+                } else {
+                    e0 <= 0.0 && e1 <= 0.0 && e2 <= 0.0
+                };
+
+                if !inside {
                     continue;
                 }
 
@@ -179,19 +201,6 @@ impl ScreenBuffer {
             }
         }
     }
-
-    pub fn fill_indexed_mesh(
-        &mut self,
-        vertices: &[Vec3],
-        indices: &[[usize; 3]],
-        fill: TriangleFillType,
-    ) {
-        for &[a, b, c] in indices {
-            let tri = Triangle3::new(vertices[a], vertices[b], vertices[c]);
-
-            self.fill_triangle_3d(tri, fill);
-        }
-    }
 }
 
 pub struct Renderer {
@@ -205,7 +214,7 @@ impl Renderer {
         }
     }
 
-    pub fn draw_mesh(&mut self, object: &Object, mesh: &Mesh) {
+    pub fn draw_mesh(&mut self, object: &Object, mesh: &Mesh, material: &Material) {
         if !object.visible {
             return;
         }
@@ -240,8 +249,11 @@ impl Renderer {
         for &[a, b, c] in &mesh.indices {
             let tri = Triangle3::new(transformed[a], transformed[b], transformed[c]);
 
-            self.screen
-                .fill_triangle_3d(tri, TriangleFillType::Solid(object.material_id.0));
+            self.screen.fill_triangle_3d(
+                tri,
+                TriangleFillType::Solid(material.color),
+                material.cull_mode,
+            );
         }
     }
 }
